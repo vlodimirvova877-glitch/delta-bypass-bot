@@ -1,0 +1,1141 @@
+import requests
+import time
+import json
+import os
+import re
+import asyncio
+import threading
+import traceback
+from telebot import TeleBot, types
+from playwright.async_api import async_playwright
+
+# ===== НАСТРОЙКИ =====
+BOT_TOKEN = "8982596305:AAHnRUAHK-lt1zvhrz2feEw-P1lAPSyKMao"
+CHANNEL_USERNAME = "@roboscript"
+CHANNEL_LINK = "https://t.me/roboscript"
+BANNER_PATH = "images/баннер.png"
+ADMIN_ID = 8288796464
+SCRIPTS_FILE = "scripts.json"
+
+bot = TeleBot(BOT_TOKEN)
+
+# ===== РАБОТА С ФАЙЛОМ СКРИПТОВ =====
+def load_scripts():
+    if os.path.exists(SCRIPTS_FILE):
+        with open(SCRIPTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_scripts(scripts):
+    with open(SCRIPTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(scripts, f, ensure_ascii=False, indent=2)
+
+# ===== ФУНКЦИЯ ПРОВЕРКИ ПОДПИСКИ =====
+def check_subscription(user_id):
+    try:
+        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+# ===== КНОПКА "НАЗАД" (КРАСНАЯ) =====
+def back_button(callback_data="main_menu"):
+    return types.InlineKeyboardButton(
+        "Назад",
+        callback_data=callback_data,
+        style="danger"
+    )
+
+# ===== ФУНКЦИЯ ПОКАЗА ПРЕДУПРЕЖДЕНИЯ О ПОДПИСКЕ =====
+def show_subscription_warning(message):
+    with open(BANNER_PATH, "rb") as photo:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        
+        btn_subscribe = types.InlineKeyboardButton(
+            "Подписаться на канал",
+            url=CHANNEL_LINK
+        )
+        
+        btn_check = types.InlineKeyboardButton(
+            "Проверить подписку",
+            callback_data="check_sub",
+            style="success"
+        )
+        
+        keyboard.add(btn_subscribe, btn_check)
+        
+        caption = (
+            "🔴 *Вы покинули канал!*\n\n"
+            "Для использования бота необходимо быть подписанным "
+            "на наш Telegram-канал.\n\n"
+            "Подпишитесь, чтобы продолжить пользоваться ботом:\n"
+            f"👉 {CHANNEL_LINK}\n\n"
+            "После подписки нажмите кнопку «Проверить подписку»."
+        )
+        
+        bot.send_photo(
+            message.chat.id,
+            photo,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# ===== ФУНКЦИЯ ГЛАВНОГО МЕНЮ =====
+def show_main_menu(message):
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    
+    btn_bypass = types.InlineKeyboardButton(
+        "Обойти ключ",
+        callback_data="bypass"
+    )
+    
+    btn_scripts = types.InlineKeyboardButton(
+        "Полученые скрипты",
+        callback_data="scripts"
+    )
+    
+    btn_news = types.InlineKeyboardButton(
+        "Новости",
+        callback_data="news"
+    )
+    
+    btn_settings = types.InlineKeyboardButton(
+        "Настройки",
+        callback_data="settings"
+    )
+    
+    btn_profile = types.InlineKeyboardButton(
+        "Профиль",
+        callback_data="profile"
+    )
+    
+    btn_support = types.InlineKeyboardButton(
+        "Поддержка",
+        callback_data="support"
+    )
+    
+    btn_admin = types.InlineKeyboardButton(
+        "Админ-панель",
+        callback_data="admin_panel"
+    )
+    
+    keyboard.add(btn_bypass, btn_scripts)
+    keyboard.add(btn_news, btn_settings)
+    keyboard.add(btn_profile, btn_support)
+    keyboard.add(btn_admin)
+    
+    caption = (
+        "🏠 *Главное меню*\n\n"
+        "Добро пожаловать в RoboScript Bypass!\n\n"
+        "Здесь вы можете:\n"
+        "• Обойти систему ключей Delta Executor\n"
+        "• Получать актуальные скрипты\n"
+        "• Следить за новостями\n"
+        "• Настроить бота под себя\n\n"
+        "Выберите нужный раздел ниже:"
+    )
+    
+    try:
+        bot.edit_message_caption(
+            caption=caption,
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+    except:
+        bot.send_message(
+            chat_id=message.chat.id,
+            text=caption,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# ===== ФУНКЦИЯ ПОЛУЧЕНИЯ СКРИПТА ПО ССЫЛКЕ =====
+def fetch_script_from_url(url):
+    try:
+        if "github.com" in url and "/blob/" in url:
+            url = url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+        
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return None
+    except:
+        return None
+
+# ===== 🔥 ФУНКЦИЯ ОБХОДА С PLAYWRIGHT (ИСПРАВЛЕННАЯ) =====
+async def bypass_platorelay_with_playwright(url):
+    """Обходит ссылку Platorelay с помощью Playwright"""
+    try:
+        async with async_playwright() as p:
+            # Запускаем браузер
+            browser = await p.chromium.launch(
+                headless=False,  # Показываем браузер для отладки
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage'
+                ]
+            )
+            
+            context = await browser.new_context(
+                viewport={'width': 1280, 'height': 720},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            
+            page = await context.new_page()
+            
+            # Маскируем бота
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+            
+            print(f"🌐 Открываю ссылку: {url}")
+            await page.goto(url, timeout=60000)
+            await page.wait_for_load_state('networkidle', timeout=30000)
+            
+            # Ждём загрузки
+            await page.wait_for_timeout(5000)
+            
+            # Ищем кнопки для обхода
+            button_keywords = [
+                'continue', 'продолжить', 'next', 'далее',
+                'show', 'показать', 'get key', 'получить ключ',
+                'verify', 'подтвердить', 'proceed', 'продолжить'
+            ]
+            
+            for keyword in button_keywords:
+                try:
+                    buttons = await page.query_selector_all('button, a, div[role="button"], input[type="submit"]')
+                    for btn in buttons:
+                        text = await btn.text_content()
+                        if text and keyword.lower() in text.lower():
+                            print(f"🔘 Нажимаю кнопку: {text}")
+                            await btn.click()
+                            await page.wait_for_timeout(3000)
+                            break
+                except Exception as e:
+                    print(f"⚠️ Ошибка при поиске кнопок: {e}")
+            
+            # Получаем текст страницы
+            page_text = await page.text_content('body')
+            
+            # Ищем ключ
+            key_patterns = [
+                r'FREE_[a-fA-F0-9]{32}',
+                r'KEY_[A-Z0-9]+',
+                r'(?<![a-zA-Z0-9])[a-fA-F0-9]{32}(?![a-zA-Z0-9])',
+                r'[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}',
+            ]
+            
+            found_keys = []
+            for pattern in key_patterns:
+                matches = re.findall(pattern, page_text)
+                if matches:
+                    for match in matches:
+                        if 'http' not in match and len(match) > 10:
+                            found_keys.append(match)
+            
+            # Ищем в специальных элементах
+            try:
+                selectors = ['.key', '#key', '.result', '#result', '.code', '#code', '.token', '#token']
+                for selector in selectors:
+                    elements = await page.query_selector_all(selector)
+                    for elem in elements:
+                        text = await elem.text_content()
+                        if text and len(text.strip()) > 10:
+                            found_keys.append(text.strip())
+            except Exception as e:
+                print(f"⚠️ Ошибка при поиске элементов: {e}")
+            
+            # Делаем скриншот для отладки
+            await page.screenshot(path='debug_page.png', full_page=True)
+            print("📸 Скриншот сохранён как debug_page.png")
+            
+            # Сохраняем HTML для отладки
+            html_content = await page.content()
+            with open('debug_page.html', 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            print("📄 HTML сохранён как debug_page.html")
+            
+            # Выбираем ключ
+            if found_keys:
+                found_keys = list(set(found_keys))
+                found_keys.sort(key=len, reverse=True)
+                
+                for key in found_keys:
+                    if 20 <= len(key) <= 50:
+                        print(f"✅ КЛЮЧ НАЙДЕН: {key}")
+                        await browser.close()
+                        return key
+                    elif len(key) > 50 and 'FREE' in key:
+                        print(f"✅ КЛЮЧ НАЙДЕН (FREE): {key}")
+                        await browser.close()
+                        return key
+                    elif len(key) == 32 and re.match(r'^[a-fA-F0-9]{32}$', key):
+                        print(f"✅ КЛЮЧ НАЙДЕН (32 hex): {key}")
+                        await browser.close()
+                        return key
+            
+            print("❌ Ключ не найден на странице")
+            await browser.close()
+            return None
+            
+    except Exception as e:
+        print(f"❌ Ошибка обхода: {e}")
+        traceback.print_exc()
+        return None
+
+# ===== ОБРАБОТЧИКИ КОМАНД =====
+
+# --- Команда /start ---
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+    
+    if not check_subscription(user_id):
+        show_subscription_warning(message)
+        return
+    
+    with open(BANNER_PATH, "rb") as photo:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        
+        btn_subscribe = types.InlineKeyboardButton(
+            "Подписаться на канал",
+            url=CHANNEL_LINK
+        )
+        
+        btn_check = types.InlineKeyboardButton(
+            "Проверить подписку",
+            callback_data="check_sub",
+            style="success"
+        )
+        
+        keyboard.add(btn_subscribe, btn_check)
+        
+        caption = (
+            "🌟 *Добро пожаловать в RoboScript Bypass!*\n\n"
+            "Чтобы использовать бота для обхода ключей Delta Executor, "
+            "необходимо подписаться на наш Telegram-канал.\n\n"
+            "Почему стоит подписаться?\n"
+            "• Актуальные обходы ключей\n"
+            "• Новости о выходе обновлений\n"
+            "• Поддержка и помощь\n\n"
+            "Нажмите кнопку ниже, чтобы подписаться, "
+            "затем вернитесь и нажмите «Проверить подписку»."
+        )
+        
+        bot.send_photo(
+            message.chat.id,
+            photo,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# --- Проверка подписки ---
+@bot.callback_query_handler(func=lambda call: call.data == "check_sub")
+def check_subscription_callback(call):
+    user_id = call.from_user.id
+    
+    if check_subscription(user_id):
+        bot.answer_callback_query(call.id, "Подписка подтверждена!")
+        show_terms(call.message)
+    else:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        
+        btn_subscribe = types.InlineKeyboardButton(
+            "Подписаться на канал",
+            url=CHANNEL_LINK
+        )
+        
+        btn_check = types.InlineKeyboardButton(
+            "Попробовать снова",
+            callback_data="check_sub",
+            style="success"
+        )
+        
+        keyboard.add(btn_subscribe, btn_check)
+        
+        bot.edit_message_caption(
+            caption=(
+                "🔴 *Вы не подписаны на канал!*\n\n"
+                "Пожалуйста, подпишитесь на наш канал, чтобы продолжить:\n"
+                f"👉 {CHANNEL_LINK}\n\n"
+                "После подписки нажмите кнопку «Попробовать снова»."
+            ),
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+        bot.answer_callback_query(call.id)
+
+# --- Второе окно (Условия использования) ---
+def show_terms(message):
+    if not check_subscription(message.from_user.id):
+        show_subscription_warning(message)
+        return
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    
+    btn_continue = types.InlineKeyboardButton(
+        "Продолжить",
+        callback_data="continue",
+        style="success"
+    )
+    
+    btn_privacy = types.InlineKeyboardButton(
+        "Конфиденциальность",
+        url="https://telegra.ph/Konfidencialnost-07-19"
+    )
+    
+    btn_terms = types.InlineKeyboardButton(
+        "Соглашение",
+        url="https://telegra.ph/Polzovatelskoe-soglashenie-07-19"
+    )
+    
+    keyboard.add(btn_continue)
+    keyboard.add(btn_privacy)
+    keyboard.add(btn_terms)
+    
+    caption = (
+        "*Правила использования бота*\n\n"
+        "Нажимая кнопку «Продолжить», вы соглашаетесь с:\n\n"
+        "• Пользовательским соглашением\n"
+        "• Политикой конфиденциальности\n"
+        "• Правилами использования сервиса\n\n"
+        "Бот предназначен для автоматического обхода систем защиты "
+        "и предоставляется «как есть» без гарантий.\n\n"
+        "Администрация не несёт ответственности за возможные "
+        "ограничения со стороны третьих лиц."
+    )
+    
+    try:
+        with open(BANNER_PATH, "rb") as photo:
+            bot.edit_message_media(
+                media=types.InputMediaPhoto(
+                    media=photo,
+                    caption=caption,
+                    parse_mode="Markdown"
+                ),
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                reply_markup=keyboard
+            )
+    except Exception as e:
+        bot.edit_message_text(
+            text=caption,
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# --- Кнопка "Продолжить" ---
+@bot.callback_query_handler(func=lambda call: call.data == "continue")
+def continue_to_main(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id, "Добро пожаловать в бота!")
+    show_main_menu(call.message)
+
+# --- Главное меню ---
+@bot.callback_query_handler(func=lambda call: call.data == "main_menu")
+def back_to_main(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    show_main_menu(call.message)
+
+# --- Обойти ключ ---
+@bot.callback_query_handler(func=lambda call: call.data == "bypass")
+def bypass_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Обход ключа Delta Executor*\n\n"
+            "Отправьте ссылку на ключ от Delta Executor.\n\n"
+            "Ссылка должна быть с сайта:\n"
+            "• auth.platorelay.com\n\n"
+            "Пример ссылки:\n"
+            f"`https://auth.platorelay.com/a?d=...`\n\n"
+            "Просто отправьте ссылку в этот чат."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Полученые скрипты ---
+@bot.callback_query_handler(func=lambda call: call.data == "scripts")
+def scripts_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Полученые скрипты*\n\n"
+            "Отправьте ссылку на скрипт (GitHub, Pastebin, Raw), "
+            "и я получу его для вас.\n\n"
+            "Поддерживаются:\n"
+            "• GitHub (автоматически преобразует в raw)\n"
+            "• Pastebin\n"
+            "• Любые прямые ссылки на .lua файлы\n\n"
+            "Просто отправьте ссылку в этот чат."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Новости ---
+@bot.callback_query_handler(func=lambda call: call.data == "news")
+def news_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    btn_channel = types.InlineKeyboardButton(
+        "Наш канал",
+        url=CHANNEL_LINK
+    )
+    keyboard.add(btn_channel)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Новости*\n\n"
+            "Будьте в курсе последних событий!\n\n"
+            "Все актуальные новости вы можете найти "
+            "в нашем Telegram-канале.\n\n"
+            "Подпишитесь, чтобы ничего не пропустить!"
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Настройки ---
+@bot.callback_query_handler(func=lambda call: call.data == "settings")
+def settings_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Настройки*\n\n"
+            "Здесь вы можете настроить бота под себя.\n\n"
+            "Доступные настройки:\n"
+            "• Уведомления\n"
+            "• Язык интерфейса\n"
+            "• Автоматический обход\n\n"
+            "Функция в разработке."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Профиль ---
+@bot.callback_query_handler(func=lambda call: call.data == "profile")
+def profile_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    user = call.from_user
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Профиль*\n\n"
+            f"Имя: {user.first_name}\n"
+            f"ID: `{user.id}`\n"
+            f"Юзернейм: @{user.username if user.username else 'Не указан'}\n\n"
+            "Статистика:\n"
+            "• Обходов выполнено: 0\n"
+            "• Скриптов получено: 0\n\n"
+            "Статус подписки: Активен"
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Поддержка ---
+@bot.callback_query_handler(func=lambda call: call.data == "support")
+def support_handler(call):
+    if not check_subscription(call.from_user.id):
+        show_subscription_warning(call.message)
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Поддержка*\n\n"
+            "Нужна помощь? Мы здесь!\n\n"
+            "Свяжитесь с нами:\n"
+            "• Наш канал: https://t.me/roboscript\n"
+            "• Чат поддержки: скоро будет\n\n"
+            "Также вы можете написать разработчику:\n"
+            "@HtB1526\n\n"
+            "Мы ответим в ближайшее время!"
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# ===== АДМИН-ПАНЕЛЬ =====
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_panel")
+def admin_panel(call):
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    
+    btn_add_script = types.InlineKeyboardButton(
+        "Добавить скрипт",
+        callback_data="admin_add_script"
+    )
+    btn_remove_script = types.InlineKeyboardButton(
+        "Удалить скрипт",
+        callback_data="admin_remove_script"
+    )
+    btn_list_scripts = types.InlineKeyboardButton(
+        "Список скриптов",
+        callback_data="admin_list_scripts"
+    )
+    btn_stats = types.InlineKeyboardButton(
+        "Статистика",
+        callback_data="admin_stats"
+    )
+    btn_broadcast = types.InlineKeyboardButton(
+        "Рассылка",
+        callback_data="admin_broadcast"
+    )
+    
+    keyboard.add(btn_add_script)
+    keyboard.add(btn_remove_script)
+    keyboard.add(btn_list_scripts)
+    keyboard.add(btn_stats)
+    keyboard.add(btn_broadcast)
+    keyboard.add(back_button("main_menu"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "⚙ *Админ-панель*\n\n"
+            "Выберите действие:\n\n"
+            "• Добавить скрипт — добавить новый скрипт в базу\n"
+            "• Удалить скрипт — удалить скрипт по номеру\n"
+            "• Список скриптов — посмотреть все скрипты\n"
+            "• Статистика — просмотр статистики бота\n"
+            "• Рассылка — отправить сообщение всем пользователям"
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Добавить скрипт ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_add_script")
+def admin_add_script(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Только для администратора!")
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("admin_panel"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Добавление скрипта*\n\n"
+            "Отправьте текст скрипта в этот чат.\n\n"
+            "После получения я сохраню его в базу данных."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    
+    bot.register_next_step_handler(call.message, admin_save_script)
+
+def admin_save_script(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    script_text = message.text.strip()
+    scripts = load_scripts()
+    scripts.append(script_text)
+    save_scripts(scripts)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("admin_panel"))
+    
+    bot.reply_to(
+        message,
+        f"✅ Скрипт успешно добавлен!\n\nВсего скриптов: {len(scripts)}",
+        reply_markup=keyboard
+    )
+
+# --- Удалить скрипт ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_remove_script")
+def admin_remove_script(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Только для администратора!")
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    scripts = load_scripts()
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    
+    if scripts:
+        for i, script in enumerate(scripts, 1):
+            short = script[:30] + "..." if len(script) > 30 else script
+            keyboard.add(types.InlineKeyboardButton(
+                f"{i}. {short}",
+                callback_data=f"admin_delete_{i-1}"
+            ))
+    else:
+        keyboard.add(types.InlineKeyboardButton(
+            "Нет скриптов",
+            callback_data="admin_no_scripts"
+        ))
+    
+    keyboard.add(back_button("admin_panel"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Удаление скрипта*\n\n"
+            "Выберите номер скрипта для удаления:"
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_delete_"))
+def admin_delete_script(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Только для администратора!")
+        return
+    
+    index = int(call.data.replace("admin_delete_", ""))
+    scripts = load_scripts()
+    
+    if 0 <= index < len(scripts):
+        deleted = scripts.pop(index)
+        save_scripts(scripts)
+        bot.answer_callback_query(call.id, "✅ Скрипт удалён!")
+    else:
+        bot.answer_callback_query(call.id, "❌ Скрипт не найден!")
+    
+    admin_panel(call)
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_no_scripts")
+def admin_no_scripts(call):
+    bot.answer_callback_query(call.id, "Нет скриптов для удаления")
+
+# --- Список скриптов ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_list_scripts")
+def admin_list_scripts(call):
+    bot.answer_callback_query(call.id)
+    
+    scripts = load_scripts()
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("admin_panel"))
+    
+    if scripts:
+        text = "*Список скриптов:*\n\n"
+        for i, script in enumerate(scripts, 1):
+            short = script[:50] + "..." if len(script) > 50 else script
+            text += f"{i}. {short}\n"
+    else:
+        text = "*Список скриптов*\n\nСкриптов пока нет."
+    
+    bot.edit_message_caption(
+        caption=text,
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Статистика ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_stats")
+def admin_stats(call):
+    bot.answer_callback_query(call.id)
+    
+    scripts = load_scripts()
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("admin_panel"))
+    
+    try:
+        chat_members = bot.get_chat_members_count(CHANNEL_USERNAME)
+    except:
+        chat_members = "Неизвестно"
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Статистика бота*\n\n"
+            f"Всего скриптов: {len(scripts)}\n"
+            f"Подписчиков канала: {chat_members}\n"
+            f"Версия бота: 1.0.0\n\n"
+            "Дополнительная статистика в разработке."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+# --- Рассылка ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
+def admin_broadcast(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Только для администратора!")
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(back_button("admin_panel"))
+    
+    bot.edit_message_caption(
+        caption=(
+            "*Рассылка*\n\n"
+            "Отправьте сообщение для рассылки в этот чат.\n\n"
+            "Сообщение будет отправлено всем пользователям бота."
+        ),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    
+    bot.register_next_step_handler(call.message, admin_send_broadcast)
+
+def admin_send_broadcast(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    text = message.text.strip()
+    msg = bot.reply_to(message, "⏳ Отправка рассылки...")
+    
+    try:
+        bot.send_message(ADMIN_ID, f"📢 Рассылка:\n\n{text}")
+        bot.edit_message_text(
+            "✅ Рассылка завершена!\n\n"
+            "Сообщение отправлено администратору.",
+            chat_id=message.chat.id,
+            message_id=msg.message_id
+        )
+    except Exception as e:
+        bot.edit_message_text(
+            f"❌ Ошибка рассылки: {e}",
+            chat_id=message.chat.id,
+            message_id=msg.message_id
+        )
+
+# ===== 🔥 ОБРАБОТКА ССЫЛОК ДЛЯ ОБХОДА КЛЮЧА (С PLAYWRIGHT) =====
+
+@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("http") and "platorelay" in msg.text.lower())
+def handle_bypass_with_playwright(message):
+    user_id = message.from_user.id
+    
+    if not check_subscription(user_id):
+        show_subscription_warning(message)
+        return
+    
+    url = message.text.strip()
+    
+    # Сообщение "Байпас начался..."
+    status_msg = bot.reply_to(
+        message,
+        "⏳ *Байпас начался, ожидайте...*\n\n"
+        "Идёт обход системы защиты...\n"
+        "Это может занять 30-60 секунд.",
+        parse_mode="Markdown"
+    )
+    
+    start_time = time.time()
+    
+    # Запускаем обход в отдельном потоке (чтобы не блокировать бота)
+    def run_bypass():
+        try:
+            # Запускаем асинхронную функцию в синхронном контексте
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            key = loop.run_until_complete(bypass_platorelay_with_playwright(url))
+            loop.close()
+            
+            elapsed = round(time.time() - start_time, 2)
+            
+            if key:
+                # Успешный обход
+                keyboard = types.InlineKeyboardMarkup(row_width=1)
+                
+                btn_copy = types.InlineKeyboardButton(
+                    "Скопировать ключ",
+                    callback_data=f"copy_{key}",
+                    style="success"
+                )
+                
+                btn_menu = types.InlineKeyboardButton(
+                    "Главное меню",
+                    callback_data="main_menu"
+                )
+                
+                keyboard.add(btn_copy, btn_menu)
+                
+                bot.edit_message_text(
+                    text=(
+                        "✅ *Байпас успешен!*\n\n"
+                        "📌 *Результат:*\n"
+                        f"`{key}`\n\n"
+                        f"⏱ *Затрачено:* {elapsed} сек."
+                    ),
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+            else:
+                # Ключ не найден
+                keyboard = types.InlineKeyboardMarkup(row_width=1)
+                btn_menu = types.InlineKeyboardButton(
+                    "Главное меню",
+                    callback_data="main_menu"
+                )
+                keyboard.add(btn_menu)
+                
+                bot.edit_message_text(
+                    text=(
+                        f"❌ *Ключ не найден*\n\n"
+                        "Не удалось получить ключ.\n"
+                        "Возможные причины:\n"
+                        "• Ссылка устарела\n"
+                        "• Сайт требует ручную капчу\n"
+                        "• Система защиты слишком сложная\n\n"
+                        f"⏱ *Затрачено:* {elapsed} сек.\n\n"
+                        "📁 Сохранены файлы для отладки:\n"
+                        "• debug_page.png\n"
+                        "• debug_page.html"
+                    ),
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            keyboard = types.InlineKeyboardMarkup(row_width=1)
+            btn_menu = types.InlineKeyboardButton(
+                "Главное меню",
+                callback_data="main_menu"
+            )
+            keyboard.add(btn_menu)
+            
+            bot.edit_message_text(
+                text=(
+                    f"❌ *Ошибка обхода*\n\n"
+                    f"{str(e)}\n\n"
+                    f"⏱ *Затрачено:* {elapsed} сек."
+                ),
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+    
+    # Запускаем в отдельном потоке
+    threading.Thread(target=run_bypass, daemon=True).start()
+
+# ===== ОБРАБОТКА ССЫЛОК (получение скрипта) =====
+@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("http") and "platorelay" not in msg.text.lower())
+def handle_script_request(message):
+    user_id = message.from_user.id
+    
+    if not check_subscription(user_id):
+        show_subscription_warning(message)
+        return
+    
+    url = message.text.strip()
+    status_msg = bot.reply_to(message, "⏳ *Получение скрипта...*", parse_mode="Markdown")
+    
+    try:
+        script = fetch_script_from_url(url)
+        
+        if script:
+            keyboard = types.InlineKeyboardMarkup(row_width=1)
+            btn_menu = types.InlineKeyboardButton(
+                "Главное меню",
+                callback_data="main_menu"
+            )
+            keyboard.add(btn_menu)
+            
+            if len(script) > 4000:
+                filename = f"script_{user_id}_{int(time.time())}.lua"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(script)
+                
+                with open(filename, "rb") as f:
+                    bot.send_document(
+                        message.chat.id,
+                        f,
+                        caption=f"✅ *Скрипт получен!*\n\nИсточник: {url}",
+                        parse_mode="Markdown",
+                        reply_markup=keyboard
+                    )
+                
+                os.remove(filename)
+                bot.delete_message(message.chat.id, status_msg.message_id)
+            else:
+                bot.edit_message_text(
+                    text=(
+                        f"✅ *Скрипт получен!*\n\n"
+                        f"Источник: {url}\n\n"
+                        f"```lua\n{script}\n```"
+                    ),
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+        else:
+            keyboard = types.InlineKeyboardMarkup(row_width=1)
+            btn_menu = types.InlineKeyboardButton(
+                "Главное меню",
+                callback_data="main_menu"
+            )
+            keyboard.add(btn_menu)
+            
+            bot.edit_message_text(
+                text=(
+                    f"❌ *Ошибка получения скрипта*\n\n"
+                    f"Не удалось получить скрипт по ссылке:\n"
+                    f"`{url}`\n\n"
+                    "Проверьте, что ссылка ведёт на raw-файл."
+                ),
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+    except Exception as e:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        btn_menu = types.InlineKeyboardButton(
+            "Главное меню",
+            callback_data="main_menu"
+        )
+        keyboard.add(btn_menu)
+        
+        bot.edit_message_text(
+            text=f"❌ *Ошибка*\n\n{str(e)}",
+            chat_id=message.chat.id,
+            message_id=status_msg.message_id,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# --- Копирование ключа ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("copy_"))
+def copy_key(call):
+    key = call.data.replace("copy_", "")
+    bot.answer_callback_query(
+        call.id,
+        text=f"✅ Ключ скопирован в буфер обмена!\n{key}",
+        show_alert=True
+    )
+
+# --- Обработка всех остальных сообщений ---
+@bot.message_handler(func=lambda msg: True)
+def handle_other_messages(message):
+    user_id = message.from_user.id
+    
+    if not check_subscription(user_id):
+        show_subscription_warning(message)
+    else:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        btn_menu = types.InlineKeyboardButton(
+            "Главное меню",
+            callback_data="main_menu"
+        )
+        keyboard.add(btn_menu)
+        
+        bot.reply_to(
+            message,
+            "📌 *Отправьте мне ссылку.*\n\n"
+            "Я могу:\n"
+            "• Обойти ключ (ссылки Platorelay)\n"
+            "• Получить скрипт (ссылки на .lua, GitHub, Pastebin)\n\n"
+            "Или используйте кнопку ниже для возврата в меню.",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+
+# ===== ЗАПУСК =====
+if __name__ == "__main__":
+    print("🚀 Бот запущен...")
+    print(f"📢 Канал: {CHANNEL_LINK}")
+    print(f"👑 Админ ID: {ADMIN_ID}")
+    print("🔓 Админ-панель видна ВСЕМ пользователям!")
+    print("⚠️ Опасные функции доступны ТОЛЬКО админу")
+    print("🔄 Обход работает через Playwright (бесплатно)")
+    print("📁 Для отладки сохраняются debug_page.png и debug_page.html")
+    try:
+        bot.infinity_polling()
+    except KeyboardInterrupt:
+        print("👋 Бот остановлен")
